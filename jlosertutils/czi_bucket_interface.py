@@ -5,7 +5,7 @@ from os import cpu_count
 from os import mkdir
 from concurrent.futures import ThreadPoolExecutor
 
-
+# This class is useful for downloading all the videos to create a dataset
 class CZIBucketInterface:
     def __init__(self):      
         self.storage_client = storage.Client(project='jal2340-applied-cv-s24')
