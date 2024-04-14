@@ -1,9 +1,9 @@
 # index is which video choosing (6th one, etc)
 from aicspylibczi import CziFile
 from google.cloud import storage
-from os import cpu_count
-from os import mkdir
+import os
 from concurrent.futures import ThreadPoolExecutor
+import random
 
 # This class is useful for downloading all the videos to create a dataset
 class CZIBucketInterface:
@@ -34,7 +34,7 @@ class CZIBucketInterface:
                 else:
                     self.blob_dict[self.experiment_dates[1]]["raw"].append(blob)
 
-        self.loaded_czifile_dict = dict()
+        self.czi_list = list()
     
     
     def download_blob(source_blob_name, destination_file_name):
@@ -47,20 +47,46 @@ class CZIBucketInterface:
 
     # MIP: Maximum Intensity Projection
     # multi: multiprocessing for speed increase
-    def get_all(self, type = "MIP", folder = "MIPDownloaded", workers=5):
- 
-        mkdir(folder)
-
+    def get_files(self, type = "MIP", folder = "MIPDownloaded", workers = 5, random_order = True, num = -1):
+        os.mkdir(folder)
+        
         blobs_to_load = list() 
         
-        for date in self.experiment_dates:
-            vid_index_list = list(range(len(self.blob_dict[date][type]))) 
+        dates = None
+        if (type == "smiley"):
+            dates = ['2023-10-25']
+        elif (type == "processed"):
+            dates = ['2023-10-25']
+        else :
+            dates = self.experiment_dates
+
+        files_downloaded = 0
+        for date in dates :
+            vid_index_list = list(range(len(self.blob_dict[date][type])))
+            if (random_order):
+                random.shuffle(vid_index_list) 
             for vid_index in vid_index_list:
+                    if (num == files_downloaded):
+                        break
                     blob = self.blob_dict[date][type][vid_index]
                     download_fname = blob.name.split('/')[-1] # ignore date/fname
                     blobs_to_load.append((blob.name, folder + '/' + download_fname))
-        
+                    if (num > -1):
+                        files_downloaded +=1
+            
+
         # Using ThreadPoolExecutor to download files in parallel
         with ThreadPoolExecutor(max_workers=workers) as executor:
             for blob_name, dest_name in blobs_to_load:
                 executor.submit(CZIBucketInterface.download_blob(blob_name, dest_name))
+
+    def get_czi_list(self,folder):
+        for entry in os.listdir(folder):
+            full_path = os.path.join(folder, entry)
+            if os.path.isfile(full_path):
+                self.czi_list.append(CziFile(full_path))
+
+    def print_czi_list_shape(self):
+        for czifile in self.czi_list:
+            print(czifile.get_dims_shape())
+            
