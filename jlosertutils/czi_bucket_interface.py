@@ -49,14 +49,14 @@ class CZIBucketInterface:
     # multi: multiprocessing for speed increase
     def get_files(self, type = "MIP", folder = "MIPDownloaded", workers = 5, random_order = True, num = -1):
         os.mkdir(folder)
-        
+
         blobs_to_load = list() 
         
         dates = None
         if (type == "smiley"):
             dates = ['2023-10-25']
         elif (type == "processed"):
-            dates = ['2023-10-25']
+            dates = ['2023-01-30']
         else :
             dates = self.experiment_dates
 
