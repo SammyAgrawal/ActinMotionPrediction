@@ -89,4 +89,8 @@ class CZIBucketInterface:
     def print_czi_list_shape(self):
         for czifile in self.czi_list:
             print(czifile.get_dims_shape())
+
+    def czi_to_tiff(self):
+        
+        return None
             
