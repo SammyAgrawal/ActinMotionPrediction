@@ -3,6 +3,7 @@
 # platform: osx-64
 appnope=0.1.4
 asttokens=2.4.1=pyhd8ed1ab_0
+aicspylibczi
 backcall=0.2.0=pyh9f0ad1d_0
 ca-certificates=2024.2.2
 comm=0.2.1
