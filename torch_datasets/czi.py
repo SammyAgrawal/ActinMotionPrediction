@@ -54,8 +54,11 @@ class CZIDataset(torch.utils.data.Dataset):
 
 class Transforms2D:
 
-    # you may not want to do the whole video if too big
-    def bounding_boxes(video,channel=0,first_frame = 0,last_frame= -1,min_area=200, thresh_calc="first-frame"):
+    # returns the coords of the bounding boxes for frame in the range (first frame, last_frame-1)
+    # (frame, bounding boxes, box_tuple)
+    # format of box_tuple is 'min_row, min_col, max_row, max_col = bbox'
+    # min area parameter determines the smallest bounding boxes you want to output based on area 
+    def bounding_boxes_coords(video,channel=0,first_frame = 0,last_frame= -1,min_area=200, thresh_calc="first-frame"):
         if len(video.shape) == 4:
             video = np.squeeze(video[:,channel,:,:])
         
@@ -79,7 +82,7 @@ class Transforms2D:
         labeled_video = np.array([label(binary_frame,background=0,connectivity=2) for binary_frame in binary_video]) 
         
         # deducing centroids, max side length, 
-        all_bboxes = list()
+        all_bboxes_coords = list()
         max_num_cells=0
         num_cells_frames = list()
         for labeled_frame in labeled_video:
@@ -91,19 +94,33 @@ class Transforms2D:
             df= df.drop(columns = ['area'])
             max_num_cells = max(max_num_cells, df.shape[0])
             num_cells_frames.append(df.shape[0])
-            all_bboxes.append(list(df.itertuples(index=False, name=None)))
+            all_bboxes_coords.append(list(df.itertuples(index=False, name=None)))
+        
+        return all_bboxes_coords, max_num_cells, num_cells_frames
 
+    
+    #returns an JAGGED array of shape (num frames, num bboxes, height of image slice corresponding to bbox in frame
+    #                                  width of image slice corresponding to bbox in frame)
+    def coords_to_bbox_vid(video, bbox_coords):
         # bboxes_video = np.zeros((frames, max_num_cells, max_bbox_size, max_bbox_size))
         bboxes_video = list()
         for frame_idx, frame in enumerate(video):
             frame_list = list()
-            for bbox in all_bboxes[frame_idx]:
+            for bbox in bbox_coords[frame_idx]:
                 min_row, min_col, max_row, max_col = bbox
                 frame_list.append(frame[min_row:max_row,min_col:max_col])
             bboxes_video.append(frame_list)
 
-        return bboxes_video, num_cells_frames
-        
+        return bboxes_video
+
+    # borrowed from sammy. can be passed as a "transform argument"
+    def scale_img(img):
+        lower_bound = np.percentile(img, 1)
+        upper_bound = np.percentile(img, 99.9)
+        I = (img - lower_bound) / (upper_bound - lower_bound)
+        I = np.clip(I, 0, 1)
+        return(I)
+    
   
         
     
