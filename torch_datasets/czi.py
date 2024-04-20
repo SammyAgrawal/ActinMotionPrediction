@@ -57,74 +57,53 @@ class CZIDataset(torch.utils.data.Dataset):
 
 class Transforms2D:
 
-    # returns the coords of the bounding boxes for frame in the range (first frame, last_frame-1)
-    # (frame, bounding boxes, box_tuple)
-    # format of box_tuple is 'min_row, min_col, max_row, max_col = bbox'
-    # min area parameter determines the smallest bounding boxes you want to output based on area 
-    def bounding_boxes_coords(video,channel=0,first_frame = 0,last_frame= -1,min_area=200, thresh_calc="first-frame"):
-        if len(video.shape) == 4:
-            video = np.squeeze(video[:,channel,:,:])
-        
-        video = video[first_frame:last_frame]
-        
-        binary_video = None
-        if (thresh_calc=='all-frames'):
-            binary_video = np.zeros(video.shape)
-            for frame_idx, frame in enumerate(video):
-                thresh=threshold_otsu(frame)
-                binary_video[frame_idx] = video[frame_idx] >= thresh
-        
-        elif (True or thresh_calc == 'first-frame'):
-            # find threshhold in first frame
-            thresh = threshold_otsu(video[0])
-            # labeling connected components of each frame
-            binary_video = video >= thresh
-
-
-        #applying the label for mask
-        labeled_video = np.array([label(binary_frame,background=0,connectivity=2) for binary_frame in binary_video]) 
-        
-        # deducing centroids, max side length, 
-        all_bboxes_coords = list()
-        max_num_cells=0
-        num_cells_frames = list()
-        for labeled_frame in labeled_video:
-            props = regionprops_table(label_image=labeled_frame,
-                                      properties=['bbox','area']
-            )
-            df = pd.DataFrame(props)
-            df = df[df['area'] >= min_area]
-            df= df.drop(columns = ['area'])
-            max_num_cells = max(max_num_cells, df.shape[0])
-            num_cells_frames.append(df.shape[0])
-            all_bboxes_coords.append(list(df.itertuples(index=False, name=None)))
-        
-        return all_bboxes_coords, max_num_cells, num_cells_frames
-
-    
-    #returns an JAGGED array of shape (num frames, num bboxes, height of image slice corresponding to bbox in frame
-    #                                  width of image slice corresponding to bbox in frame)
-    def coords_to_bbox_vid(video, bbox_coords):
-        # bboxes_video = np.zeros((frames, max_num_cells, max_bbox_size, max_bbox_size))
-        bboxes_video = list()
-        for frame_idx, frame in enumerate(video):
-            frame_list = list()
-            if frame_idx >= len(bbox_coords) : continue
-            for bbox in bbox_coords[frame_idx]:
-                min_row, min_col, max_row, max_col = bbox
-                frame_list.append(frame[min_row:max_row,min_col:max_col])
-            bboxes_video.append(frame_list)
-
-        return bboxes_video
-
     # borrowed from sammy. can be passed as a "transform argument"
-    def scale_img(img):
-        lower_bound = np.percentile(img, 1)
-        upper_bound = np.percentile(img, 99.9)
-        I = (img - lower_bound) / (upper_bound - lower_bound)
-        I = np.clip(I, 0, 1)
-        return(I)
+    # since our intensities can get very large, we want to clip exploding values 
+    # and bring all the values into the range(0,1)
+    @staticmethod
+    def clip_intensities(video):
+        lower_bound, upper_bound = np.percentile(img, [1, 99.9])
+        img = (img - lower_bound) / (upper_bound - lower_bound)
+        np.clip(video, 0, 1, out=img)  # in-place clipping
+        return video
     
-  
+    @staticmethod
+    def thresh(video):
+        threshes = [threshold_otsu(frame) for frame in video]
+        return np.array([frame >= thresh for frame, thresh in zip(video, threshes)]) 
+    
+    # returns a 'labeled' frame
+    @staticmethod
+    def connected_components(thresholded_frame):
+         return label(thresholded_frame,background=0,connectivity=2)
+    
+    @staticmethod
+    def bounding_boxes(labeled_frame, min_area=200):
+        props = regionprops_table(labeled_frame, properties=['bbox', 'area'])
+        df = pd.DataFrame(props)
         
+        # Filter the DataFrame for areas greater than min_area
+        filtered_df = df[df['area'] >= min_area]
+    
+        # Extract the bounding box coordinates
+        bbox_coords = [
+            (row['bbox-0'], row['bbox-1'], row['bbox-2'], row['bbox-3'])
+            for index, row in filtered_df.iterrows()
+        ]
+        
+        return bbox_coords
+
+    @staticmethod
+    def coords_to_bbox_frame_list(frame, bbox_coords):
+        return  [frame[min_row:max_row, min_col:max_col] for min_row, min_col, max_row, max_col in bbox_coords]
+        
+    
+    @staticmethod
+    def default_bounding_boxes_pipeline_2dvideo(video):
+        video = np.array([Transforms2D.clip_intensities(frame) for frame in video])
+        thresholded_video = np.array([Transforms2D.thresh(frame) for frame in video])
+        labeled_video = np.array([Transforms2D.connected_components(thresholded_frame) for thresholded_frame in thresholded_video])
+        bounding_boxes = [Transforms2D.bounding_boxes(labeled_frame) for labeled_frame in labeled_video]
+        bounding_box_frames = [Transforms2D.coords_to_bbox_frame_list(frame,bbox_coords) for frame, bbox_coords in zip(video, bounding_boxes)]
+        return bounding_box_frames
     
