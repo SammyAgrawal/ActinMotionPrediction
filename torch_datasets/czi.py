@@ -34,7 +34,7 @@ class CZIDataset(torch.utils.data.Dataset):
         shape = img.size
         frames_data, shape = img.read_image()
         # Convert image data to a torch tensor and remove dims with single element
-        data = np.squeeze(frames_data).astype(np.int32)
+        data = np.squeeze(frames_data).astype(np.uint32)
 
         # Apply transform if any
         if self.transform:
@@ -49,52 +49,39 @@ class Transforms2D:
     def bounding_boxes(video,first_frame = 0,last_frame= -1, max_side_length=None):
         video = video[first_frame:last_frame]
         
-        # background subtraction by threshholding based on the first frame
-        thresh = np.average(np.array([threshold_otsu(frame) for frame in video]))
+        # deduced by looking at data
+        thresh = 256
 
         # labeling connected components of each frame
-        video = video >= thresh
+        binary_video = video >= thresh
         
-        labeled_video = np.array([label(frame) for frame in video]) 
+        labeled_video = np.array([label(binary_frame,background=0) for binary_frame in binary_video]) 
 
         # deducing centroids, max side length, 
         all_bboxes = list()
         max_num_cells = 0
-        max_bbox_size = 0
+        max_bbox_size = 1000
 
         for labeled_frame in labeled_video:
             props = regionprops_table(label_image=labeled_frame,
-                                      properties=['bbox']
+                                      properties=['bbox','area_bbox']
             )
             df = pd.DataFrame(props)
-            df['h'] = df['bbox-2'] - df['bbox-0'] 
-            df['w'] =  df['bbox-3'] - df['bbox-1']
-            max_side_length = max(max(df['h'], df['w']))
+            df = df[df['area_bbox'] >= labeled_frame.shape[0] * labeled_frame.shape[1] * 0.01]
+            df= df.drop(columns = ['area_bbox'])
+            max_num_cells = max(max_num_cells, df.shape[0])
+            all_bboxes.append(list(df.itertuples(index=False, name=None)))
 
-
-        # keep the bounding box size within the bounds
-        if (type(max_side_length) == int and max_bbox_size > max_side_length):
-            max_bbox_size = max_side_length
-
-        # make the bounding box size even
-        if (max_bbox_size % 2 == 1):
-            max_bbox_size = max_bbox_size + 1
-            
-        # numpy ndarray of shape (frames, max_num_cells, max_bbox_size, max_bbox_size)
-        frames=video.shape[0]
-        bboxes_video = np.zeros((frames, max_num_cells, max_bbox_size, max_bbox_size))
+        # bboxes_video = np.zeros((frames, max_num_cells, max_bbox_size, max_bbox_size))
+        bboxes_video = list()
         for frame_idx, frame in enumerate(video):
-            for bbox_idx, bbox in enumerate(all_bbox[frame_idx]):
-                min_row = max(0,max_bbox_size)
-                max_row = min(0)
-                height = max_row - min_row
+            frame_list = list()
+            for bbox in all_bboxes[frame_idx]:
+                print(bbox)
+                min_row, min_col, max_row, max_col = bbox
+                frame_list.append(frame[min_row:max_row][min_col:max_col])
+            bboxes_video.append(frame_list)
 
-                min_col = max(0,centroid[1] - max_bbox_size//2,0)
-                max_col = min(frame.shape[1], centroid[1] + max_bbox_size//2)
-                width = max_col - min_col
-
-                bboxes_video[frame_idx,centroid_idx,0:height,0:width] = frame[min_row:max_row, min_col:max_col]
-        
         return bboxes_video
         
   
