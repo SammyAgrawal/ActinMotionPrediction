@@ -18,9 +18,10 @@ import pandas as pd
 
 class CZIDataset(torch.utils.data.Dataset):
     
-    def __init__(self, folder, transform=None):
+    def __init__(self, folder, transform=None, twod_vid_channel=None):
         self.files = [folder + '/' + filename for filename in os.listdir(folder)]
         self.transform = transform
+        self.twod_vid_channel = twod_vid_channel
 
     def __len__(self):
         return len(self.files)
@@ -39,6 +40,9 @@ class CZIDataset(torch.utils.data.Dataset):
         # Apply transform if any
         if self.transform:
             data = self.transform(data)
+        if (type(self.twod_vid_channel) == int and self.twod_vid_channel >= 0 \
+            and len(data.shape)==4):
+            data = np.squeeze(data[:,self.twod_vid_channel,:,:]) 
 
         return data, dims, shape
 
@@ -51,21 +55,33 @@ class CZIDataset(torch.utils.data.Dataset):
 class Transforms2D:
 
     # you may not want to do the whole video if too big
-    def bounding_boxes(video,first_frame = 0,last_frame= -1,min_area=200):
+    def bounding_boxes(video,channel=0,first_frame = 0,last_frame= -1,min_area=200, thresh_calc="first-frame"):
+        if len(video.shape) == 4:
+            video = np.squeeze(video[:,channel,:,:])
+        
         video = video[first_frame:last_frame]
         
-        # find threshhold in first frame
-        thresh = threshold_otsu(video[0])
-
-        # labeling connected components of each frame
-        binary_video = video >= thresh
+        binary_video = None
+        if (thresh_calc=='all-frames'):
+            binary_video = np.zeros(video.shape)
+            for frame_idx, frame in enumerate(video):
+                thresh=threshold_otsu(frame)
+                binary_video[frame_idx] = video[frame_idx] >= thresh
         
+        elif (True or thresh_calc == 'first-frame'):
+            # find threshhold in first frame
+            thresh = threshold_otsu(video[0])
+            # labeling connected components of each frame
+            binary_video = video >= thresh
+
+
         #applying the label for mask
         labeled_video = np.array([label(binary_frame,background=0,connectivity=2) for binary_frame in binary_video]) 
         
         # deducing centroids, max side length, 
         all_bboxes = list()
         max_num_cells=0
+        num_cells_frames = list()
         for labeled_frame in labeled_video:
             props = regionprops_table(label_image=labeled_frame,
                                       properties=['bbox','area']
@@ -73,8 +89,8 @@ class Transforms2D:
             df = pd.DataFrame(props)
             df = df[df['area'] >= min_area]
             df= df.drop(columns = ['area'])
-            print(df)
             max_num_cells = max(max_num_cells, df.shape[0])
+            num_cells_frames.append(df.shape[0])
             all_bboxes.append(list(df.itertuples(index=False, name=None)))
 
         # bboxes_video = np.zeros((frames, max_num_cells, max_bbox_size, max_bbox_size))
@@ -82,13 +98,11 @@ class Transforms2D:
         for frame_idx, frame in enumerate(video):
             frame_list = list()
             for bbox in all_bboxes[frame_idx]:
-                print(bbox)
                 min_row, min_col, max_row, max_col = bbox
-                print(max_row, min_row)
                 frame_list.append(frame[min_row:max_row,min_col:max_col])
             bboxes_video.append(frame_list)
 
-        return bboxes_video
+        return bboxes_video, num_cells_frames
         
   
         
