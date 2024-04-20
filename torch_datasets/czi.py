@@ -109,6 +109,7 @@ class Transforms2D:
         bboxes_video = list()
         for frame_idx, frame in enumerate(video):
             frame_list = list()
+            if frame_idx >= len(bbox_coords) : continue
             for bbox in bbox_coords[frame_idx]:
                 min_row, min_col, max_row, max_col = bbox
                 frame_list.append(frame[min_row:max_row,min_col:max_col])
