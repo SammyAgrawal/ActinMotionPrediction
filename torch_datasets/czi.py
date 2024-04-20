@@ -42,33 +42,38 @@ class CZIDataset(torch.utils.data.Dataset):
 
         return data, dims, shape
 
+#TODO_1: return a numpy ndarray instead of a list by adding padding
+#TODO_2: perform cell matching across frames using bounding box similarity
+#TODO_3: optimize memory usage by minimizing internmediate objects / being more pythonic
+#       / using kernel fusion
+
 
 class Transforms2D:
 
     # you may not want to do the whole video if too big
-    def bounding_boxes(video,first_frame = 0,last_frame= -1, max_side_length=None):
+    def bounding_boxes(video,first_frame = 0,last_frame= -1,min_area=200):
         video = video[first_frame:last_frame]
         
-        # deduced by looking at data
-        thresh = 256
+        # find threshhold in first frame
+        thresh = threshold_otsu(video[0])
 
         # labeling connected components of each frame
         binary_video = video >= thresh
         
-        labeled_video = np.array([label(binary_frame,background=0) for binary_frame in binary_video]) 
-
+        #applying the label for mask
+        labeled_video = np.array([label(binary_frame,background=0,connectivity=2) for binary_frame in binary_video]) 
+        
         # deducing centroids, max side length, 
         all_bboxes = list()
-        max_num_cells = 0
-        max_bbox_size = 1000
-
+        max_num_cells=0
         for labeled_frame in labeled_video:
             props = regionprops_table(label_image=labeled_frame,
-                                      properties=['bbox','area_bbox']
+                                      properties=['bbox','area']
             )
             df = pd.DataFrame(props)
-            df = df[df['area_bbox'] >= labeled_frame.shape[0] * labeled_frame.shape[1] * 0.01]
-            df= df.drop(columns = ['area_bbox'])
+            df = df[df['area'] >= min_area]
+            df= df.drop(columns = ['area'])
+            print(df)
             max_num_cells = max(max_num_cells, df.shape[0])
             all_bboxes.append(list(df.itertuples(index=False, name=None)))
 
@@ -79,7 +84,8 @@ class Transforms2D:
             for bbox in all_bboxes[frame_idx]:
                 print(bbox)
                 min_row, min_col, max_row, max_col = bbox
-                frame_list.append(frame[min_row:max_row][min_col:max_col])
+                print(max_row, min_row)
+                frame_list.append(frame[min_row:max_row,min_col:max_col])
             bboxes_video.append(frame_list)
 
         return bboxes_video
