@@ -2,10 +2,13 @@ from aicspylibczi import CziFile
 import os
 import torch
 import numpy as np
-from skimage.measure import label
-from skimage.measure import regionprops_table
-from skimage.filters import threshold_otsu
+from skimage.measure import label # version at least 0.22
+from skimage.measure import regionprops_table # version at least 0.22
+from skimage.filters import threshold_otsu # version at least 0.22
 import pandas as pd
+
+#import torch_datasets.czi as czi
+#
 
 
 # Authored by Johannes Losert
