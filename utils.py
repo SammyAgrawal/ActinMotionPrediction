@@ -1,12 +1,13 @@
 from aicspylibczi import CziFile
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import imshow
 import matplotlib.animation as animation
-
+from scipy.stats import sigmaclip
+from multiprocessing import Pool
 import os
-import pandas as pd
-
+import cv2
 from skimage.measure import label, regionprops_table # version at least 0.22
 from skimage.filters import threshold_otsu # version at least 0.22
 
@@ -32,11 +33,12 @@ def get_file(vid_type, num):
     return(video)
 
 
-def scale_img(img):
+def scale_img(img, do_clip=True):
     lower_bound = np.percentile(img, 1)
     upper_bound = np.percentile(img, 99.9)
     I = (img - lower_bound) / (upper_bound - lower_bound)
-    I = np.clip(I, 0, 1)
+    if(do_clip):
+        I = np.clip(I, 0, 1)
     return(I)
 
 
@@ -62,6 +64,22 @@ def binarize_video(frames, thresh_calc='all'):
 
     return(np.array(binary_frames))
 
+def frame_otsu_thresholding(frame):
+    return (frame >= threshold_otsu(frame))
+
+def frame_connected_components(thresholded_frame):
+    return label(thresholded_frame, background=0, connectivity=2)
+
+def binarize_video_fast(frames):
+
+    # computes a unique otsu threshhold for all videos
+    with Pool(processes=os.cpu_count()) as pool:
+        # Map apply_otsu_threshold to each frame
+        video_threshed = pool.map(frame_otsu_thresholding, frames)
+        video_labeled = pool.map(frame_connected_components, video_threshed)
+    
+    return video_labeled
+    
 
 def bounding_boxes(mask, min_area=300):    
     # deducing centroids, max side length, 
@@ -102,7 +120,7 @@ def draw_boxes(frame, boxes, thickness=2, val=1, cell=-1):
 
 
 def box_tracking_video(frames, masks=-1, thickness=2):
-    if(masks == -1):
+    if(type(masks) == int):
         # if not provided, calculated
         masks = binarize_video(frames)
         print("Computed binary masks")
