@@ -2,7 +2,13 @@ from aicspylibczi import CziFile
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import imshow
+import matplotlib.animation as animation
+
 import os
+import pandas as pd
+
+from skimage.measure import label, regionprops_table # version at least 0.22
+from skimage.filters import threshold_otsu # version at least 0.22
 
 
 def get_file(vid_type, num):
@@ -77,11 +83,20 @@ def bounding_boxes(mask, min_area=300):
     return bboxes, num_cells, cell_areas
 
 
-def draw_boxes(frame, boxes, thickness=2, val=1):
+def draw_boxes(frame, boxes, thickness=2, val=1, cell=-1):
     img = frame.copy()
-    for bbox in boxes:
-        min_row, min_col, max_row, max_col = bbox
+
+    def draw(img, box, thickness, val):
+        min_row, min_col, max_row, max_col = box
         img = cv2.rectangle(img, (min_col, min_row), (max_col, max_row), val, thickness)
+        return(img)
+    
+    if(cell==-1):
+        for bbox in boxes:
+            img = draw(img, bbox, thickness, val)
+    else:
+        img = draw(img, boxes[cell], thickness, val) 
+        
     return(img)
 
 
@@ -105,24 +120,50 @@ def box_tracking_video(frames, masks=-1, thickness=2):
     return(video, num_cells_per_frame, cell_areas)
 
 
-
-def track_cell(cell_id, frames=frames, masks=-1, padding=0):
+def track_cells(cell_id, frames, masks, padding=0):
     N = frames.shape[0]
-    data = {"patches" : [], 'boxes' : [], "masks" : []}    
-    if(masks == -1):
+    if(type(masks) == int):
         # if not provided, calculated
         masks = binarize_video(frames)
         print("Computed binary masks")
 
-    def get_corresponding_cell_box(boxes, num, areas, cell_prev_position=0, cell_prev_area=0):
+    data = {"patches" : [], 'boxes' : [], "masks" : []}
+    areas = []
+    num_cells_frames = []
+    
+    def get_corresponding_cell_box(boxes, num, areas, frame_idx=0, verbose=False):
         ## TO DO : Ensure that index of boxes stays consistent even as boxes appear and dissapear
-        return(cell_id)
+        if(frame_idx == 0):
+            return(cell_id)
+
+        assert len(data['boxes']) >= frame_idx, f"Missing frame history at {frame_idx}"
+        prev_box, prev_num, prev_area = data['boxes'][-1], num_cells_frames[-1], areas[-1]
+        scores = []
+        for i in range(len(boxes)):
+            delta_area = abs(prev_area - areas[i])
+            delta_x = abs(prev_box[0] - boxes[i][0])
+            delta_y = abs(prev_box[1] - boxes[i][1])
+
+            score = 50*(delta_x + delta_y) + delta_area / 10
+            scores.append(score)
+
+        index = np.argmin(scores)
+        if(index != cell_id and verbose):
+            print(f"Choosing {index} instead of cell id {cell_id} at frame {frame_idx}")
+            print(f"Areas: {areas}\n boxes: {boxes}")
+            print(f"Previous box and area: {prev_box}\n {prev_area}")
+            print(f"Cell id area changed from {prev_area} to areas[cell_id]. All areas are {areas}")
+            print("\n\n\n")
+        return(index)
     
     h_max, w_max = 0, 0
     skip_frames = []
-    for i in range(N):
-        boxes, num_cells, areas = bounding_boxes(masks[frame_idx]) # all on frame
-        index_of_cell = get_corresponding_cell_box(boxes, num_cells, areas) # right now assume same index throughout entire video
+    for frame_idx in range(N):
+        boxes, num_cells, area = bounding_boxes(masks[frame_idx]) # all on frame
+        index_of_cell = get_corresponding_cell_box(boxes, num_cells, area, frame_idx) # right now assume same index throughout entire video
+        
+        areas.append(area[index_of_cell])
+        num_cells_frames.append(num_cells)
         
         bbox = boxes[index_of_cell] # cell id is meant to track a SPECIFIC cell, ensure maintain integrity of cell over time
         
@@ -137,12 +178,15 @@ def track_cell(cell_id, frames=frames, masks=-1, padding=0):
 
         data['boxes'].append((min_row, min_col, max_row, max_col))
         
-        patch = frames[i, min_row:max_row, min_col:max_col]
-        mask_patch = masks[i, min_row:max_row, min_col:max_col]
+        patch = frames[frame_idx, min_row:max_row, min_col:max_col]
+        mask_patch = masks[frame_idx, min_row:max_row, min_col:max_col]
         data['patches'].append(patch)
         data['masks'].append(mask_patch)
 
     return(data)
+
+
+
 
 
 
