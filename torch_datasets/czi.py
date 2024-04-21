@@ -6,6 +6,9 @@ from skimage.measure import label # version at least 0.22
 from skimage.measure import regionprops_table # version at least 0.22
 from skimage.filters import threshold_otsu # version at least 0.22
 import pandas as pd
+from scipy.stats import sigmaclip
+from multiprocessing import Pool
+import os
 
 #import torch_datasets.czi as czi
 #
@@ -38,7 +41,7 @@ class CZIDataset(torch.utils.data.Dataset):
         shape = img.size
         frames_data, shape = img.read_image()
         # Convert image data to a torch tensor and remove dims with single element
-        data = np.squeeze(frames_data).astype(np.uint32)
+        data = np.squeeze(frames_data).astype(np.uint16)
 
         # Apply transform if any
         if self.transform:
@@ -57,53 +60,75 @@ class CZIDataset(torch.utils.data.Dataset):
 
 class Transforms2D:
 
-    # borrowed from sammy. can be passed as a "transform argument"
-    # since our intensities can get very large, we want to clip exploding values 
-    # and bring all the values into the range(0,1)
+
+    # midpoint is super efficient because integer datatypes means bitlevel right shift of difference 
     @staticmethod
     def clip_intensities(video):
-        lower_bound, upper_bound = np.percentile(img, [1, 99.9])
-        img = (img - lower_bound) / (upper_bound - lower_bound)
-        np.clip(video, 0, 1, out=img)  # in-place clipping
+        percentile_axes = None
+        if (video.ndim == 4) : percentile_axes = (1,2,3)
+        elif (video.ndim == 3): percentile_axes = (1,2)
+        
+        frames_lower_bounds, frames_upper_bounds = np.percentile(video, [1, 99.9], axis=percentile_axes,method='midpoint')
+        
+        if (video.ndim == 4):        
+            frames_lower_bounds = frames_lower_bounds[:, np.newaxis, np.newaxis, np.newaxis]
+            frames_upper_bounds = frames_upper_bounds[:, np.newaxis, np.newaxis, np.newaxis]
+        elif (video.ndim == 3):
+            frames_lower_bounds = frames_lower_bounds[:, np.newaxis, np.newaxis]
+            frames_upper_bounds = frames_upper_bounds[:, np.newaxis, np.newaxis]
+            
+        video = (video - frames_lower_bounds) / (frames_upper_bounds - frames_lower_bounds)
+        np.clip(video, 0, 255, out=video).astype(np.uint8)
         return video
+
+    # computes the otsu tresholded version of a single frame
+    # only works for 2d
+    # need to make it work for 3d or find diff segmentation
+    @staticmethod
+    def frame_otsu_thresholding(frame):
+        return (frame >= threshold_otsu(frame))
+
+    # computes a unique otsu threshhold for all videos
+    @staticmethod
+    def video_otsu_thresholding_parallel(video):
+        with Pool(processes=os.cpu_count()) as pool:
+            # Map apply_otsu_threshold to each frame
+            video_threshed = pool.map(Transforms2D.frame_otsu_thresholding, video)
+        return video_threshed
     
     @staticmethod
-    def thresh(video):
-        threshes = [threshold_otsu(frame) for frame in video]
-        return np.array([frame >= thresh for frame, thresh in zip(video, threshes)]) 
-    
-    # returns a 'labeled' frame
-    @staticmethod
-    def connected_components(thresholded_frame):
-         return label(thresholded_frame,background=0,connectivity=2)
+    def frame_connected_components(thresholded_frame):
+        return label(thresholded_frame,background=0,connectivity=2)
     
     @staticmethod
-    def bounding_boxes(labeled_frame, min_area=200):
+    def video_connected_components_parallel(thresholded_video):
+        with Pool(processes=os.cpu_count()) as pool:
+            video_labeled = pool.map(Transforms2D.frame_connected_components, thresholded_video)
+        return video_labeled
+    
+
+    @staticmethod
+    def frame_bounding_boxes(labeled_frame, min_area=250):
         props = regionprops_table(labeled_frame, properties=['bbox', 'area'])
         df = pd.DataFrame(props)
         
         # Filter the DataFrame for areas greater than min_area
         filtered_df = df[df['area'] >= min_area]
-    
+
         # Extract the bounding box coordinates
         bbox_coords = [
             (row['bbox-0'], row['bbox-1'], row['bbox-2'], row['bbox-3'])
             for index, row in filtered_df.iterrows()
         ]
-        
         return bbox_coords
+    
+    @staticmethod
+    def video_bounding_boxes_parallel(labeled_video):
+        with Pool(processes=os.cpu_count()) as pool:
+            video_labeled = pool.map(Transforms2D.frame_bounding_boxes, labeled_video)
+        return video_labeled
 
     @staticmethod
-    def coords_to_bbox_frame_list(frame, bbox_coords):
+    def apply_bounding_boxes (frame, bbox_coords):
         return  [frame[min_row:max_row, min_col:max_col] for min_row, min_col, max_row, max_col in bbox_coords]
         
-    
-    @staticmethod
-    def default_bounding_boxes_pipeline_2dvideo(video):
-        video = np.array([Transforms2D.clip_intensities(frame) for frame in video])
-        thresholded_video = np.array([Transforms2D.thresh(frame) for frame in video])
-        labeled_video = np.array([Transforms2D.connected_components(thresholded_frame) for thresholded_frame in thresholded_video])
-        bounding_boxes = [Transforms2D.bounding_boxes(labeled_frame) for labeled_frame in labeled_video]
-        bounding_box_frames = [Transforms2D.coords_to_bbox_frame_list(frame,bbox_coords) for frame, bbox_coords in zip(video, bounding_boxes)]
-        return bounding_box_frames
-    
