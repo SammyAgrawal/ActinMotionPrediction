@@ -177,7 +177,7 @@ def extract_traces(frames, masks, hist=2, load_verifying_videos=True):
     vid_data = []
     videos_for_checking = []
     for i in range(num_cells):
-        print("Extracting cell ", i)
+        #print("Extracting cell ", i)
         data = track_cells(i, frames, masks, padding=0, history_length=hist, verbose=False)
         vid_data.append(data)
         if(load_verifying_videos):
@@ -240,7 +240,7 @@ def track_cells(cell_id, frames, masks=-1, padding=0, history_length=1, verbose=
 
         data['boxes'].append((min_row, min_col, max_row, max_col))
         data['patches'].append(patch)
-        data['masks'].append(mask_patch)
+        data['masks'].append(mask_patch > 0)
 
         num_cells_frames.append(num_cells)
         areas_frames.append(areas[index_of_cell])
