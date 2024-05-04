@@ -1,3 +1,14 @@
+from utils import *
+
+def extract_traces_sparse(frames, masks, hist=2):
+    bboxes, num_cells, areas = bounding_boxes(masks[0])
+    vid_data = []
+    for i in range(num_cells):
+        #print("Extracting cell ", i)
+        data = track_cells(i, frames, masks, padding=0, history_length=hist, verbose=False)
+        vid_data.append(data)
+    return(vid_data)
+
 class VideoDataProcessed:
     def __init__(self, files, sequence_length=5, channel=0):
         self.data = {}
