@@ -247,6 +247,46 @@ def track_cells(cell_id, frames, masks=-1, padding=0, history_length=1, verbose=
 
     return(data)
 
+class VideoDataMIP:
+    def __init__(self, files):
+        self.data = {
+        }
+        
+        for category, num in files:
+            print(f"Loading in MIP {num}")
+            assert category == 'mip', "Can't load non Mip file"
+            file = {}
+            file['video'] = get_file(category, num)
+            
+            frames, shp = file['video'].read_image(C=0)
+            frames = scale_img(frames.squeeze())
+            file['frames'] = frames
+            print(f"frames {num}: {frames.shape}")
+            file['masks'] = binarize_video(frames)           
+    
+            self.data[num] = file    
+    def extract_all_traces(self, file_num, sequence_length, hist_length=2):
+        # hist length is how many frames of history
+        frames, masks = self.data[file_num]['frames'], self.data[file_num]['masks']
+        N = len(frames)
+        s = 0
+        all_traces = []
+        all_videos = []
+        for i in range(N // sequence_length):
+            print(f"Extracting traces from {s}:{s+sequence_length}")
+            data, videos = extract_traces(frames[s:s+sequence_length], masks[s:s+sequence_length], hist=hist_length)
+            s += sequence_length
+            all_traces = all_traces + data
+            all_videos = all_videos + videos
+        
+        if(N % sequence_length > 0):
+            data, videos = extract_traces(frames[-1*sequence_length:], masks[-1*sequence_length:], hist=hist_length)
+            all_traces = all_traces + data
+            all_videos = all_videos + videos        
+        self.data[file_num]['traces'] = all_traces
+        self.data[file_num]['trace_videos'] = all_videos
+            
+
 
 
 
