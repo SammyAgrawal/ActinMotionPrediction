@@ -1,3 +1,49 @@
+from utils import *
+import mahotas #: Module("mahotas")
+
+
+def extract_traces_sparse(frames, masks, hist=2):
+    bboxes, num_cells, areas = bounding_boxes(masks[0])
+    vid_data = []
+    for i in range(num_cells):
+        #print("Extracting cell ", i)
+        data = track_cells(i, frames, masks, padding=0, history_length=hist, verbose=False)
+        vid_data.append(data)
+    return(vid_data)
+
+def shape_features(binary, feature_length=20, num_samples=180):
+    def radial_distance(binary, theta):
+        height, width = binary.shape
+        center = [width // 2, height // 2]
+        def test_r(r):
+            x_test, y_test = center[0] + r*np.cos(theta), center[1] + r*np.sin(theta)
+            if(x_test >= width or y_test > height or x_test < 0 or y_test < 0):
+                return(False)
+            return(binary[int(y_test), int(x_test)])
+        # calculate distance to the nearest pixel
+        r = max(height, width)
+        while(not test_r(r)): # start from edge come inside until hit cell
+            r -= 1
+        return(r)
+
+    test_angles = np.linspace(0, 2*np.pi, num_samples)
+    distances = np.array([radial_distance(binary, angle) for angle in test_angles])
+    fft_coefficients = np.fft.rfft(distances)
+
+    features = np.abs(fft_coefficients[:feature_length])
+    features = features / np.sum(features)
+    return(features, (distances, fft_coefficients))
+
+def featurize(cell_data, index):
+    image, binary = cell_data['patches'][index], cell_data['masks'][index].astype(np.uint8)
+    zernike = mahotas.features.zernike_moments(binary, max(binary.shape)/2, degree=8)
+    #zernike = zernike / zernike.sum()
+    haralick = mahotas.features.haralick(image.astype(np.uint16)).mean(axis=0)
+    #haralick = haralick / haralick.sum()
+    shape, info = shape_features(binary, 20)
+    #print(f"Zernike: {zernike.shape}, Haralick: {haralick.shape}, Radial Shape: {shape.shape}")
+    return(np.concatenate([zernike, haralick, shape]))
+
 class VideoDataProcessed:
     def __init__(self, files, sequence_length=5, channel=0):
         self.data = {}
@@ -10,6 +56,10 @@ class VideoDataProcessed:
             assert category == 'processed', "Can't load non processed file"
             video = get_file(category, num)
             self.videos[num] = video
+        self.num_vids = len(self.data)
+
+    def __len__(self):
+        return self.num_vids
 
     def extract_planes(self, num, zplanes, hist_length):
         for z in zplanes:
@@ -32,7 +82,7 @@ class VideoDataProcessed:
             self.all_traces = self.all_traces + data
         
         if(N % self.seq_length > 0):
-            data = extract_traces_sparse(frames[-1*sequence_length:], masks[-1*sequence_length:], hist=hist_length)
+            data = extract_traces_sparse(frames[-1*self.seq_length:], masks[-1*self.seq_length:], hist=hist_length)
             self.all_traces = self.all_traces + data
 
 
