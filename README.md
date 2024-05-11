@@ -2,7 +2,7 @@
 
 Cellpose Code in Cellpose_tuning
 
-Optical Flow is in OpticalFlow.ipynb
+Optical Flow is in opticalflow.ipynb
 
 NextFrameModels is in NextFramePrediction.ipynb, our old models are in FinalModel and 3d_Models
 
