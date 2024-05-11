@@ -8,3 +8,4 @@ NextFrameModels is in NextFramePrediction.ipynb, our old models are in FinalMode
 
 Utilities are in utils and cell analysis 
 
+processing 3d data is in VideoProcessing and VideoLoaders
